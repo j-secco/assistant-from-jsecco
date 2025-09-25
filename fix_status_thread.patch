@@ -1,0 +1,5 @@
+# Move status thread start outside the connection success block
+# so position simulation runs even when robot connection fails
+
+# Find the line with "Start status monitoring thread" and the following lines
+# Move them to always run after connection attempt

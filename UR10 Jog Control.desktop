@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=UR10 Jog Control
+Comment=Touch-optimized WebSocket jog control for Universal Robots UR10
+Exec=/home/ur10/Documents/assistant-from-jsecco/start_ui.sh --fullscreen
+Icon=/home/ur10/Documents/assistant-from-jsecco/docs/robot-icon.png
+Terminal=false
+Type=Application
+Categories=Engineering;Development;
+Keywords=robot;UR10;jogging;control;manufacturing;
+StartupNotify=true

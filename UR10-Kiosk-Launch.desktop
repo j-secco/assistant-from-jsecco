@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Name=UR10 Kiosk Interface
+Comment=Launch UR10 WebSocket Jog Control Interface in Kiosk Mode
+Exec=/home/ur10/Documents/assistant-from-jsecco/launch_kiosk.sh
+Icon=/home/ur10/Documents/assistant-from-jsecco/docs/robot-icon.png
+Terminal=true
+Type=Application
+Categories=Engineering;Development;
+Keywords=robot;UR10;jogging;control;kiosk;
+StartupNotify=true
+Path=/home/ur10/Documents/assistant-from-jsecco
