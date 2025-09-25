@@ -1,0 +1,41 @@
+--- a/src/communication/websocket_receiver.py
++++ b/src/communication/websocket_receiver.py
+@@ -332,6 +332,8 @@
+         """
+         try:
+             # This is a simplified parser for the UR real-time interface
++            # DEBUG: Log data reception
++            self.logger.info(f"Processing {len(data)} bytes of real-time data")
+             # The actual format is quite complex and depends on the UR version
+             # For a complete implementation, refer to the UR documentation
+             
+@@ -376,9 +378,12 @@
+             # Position: X, Y, Z in meters  
+             # Rotation: RX, RY, RZ in radians
+             tcp_pose_offset = offset + 444  # Typical offset for actual_TCP_pose
+             if len(data) >= tcp_pose_offset + 48:
+                 tcp_pose = list(struct.unpack('>6d', data[tcp_pose_offset:tcp_pose_offset + 48]))
+                 self.robot_state['tcp_pose'] = tcp_pose
++                # DEBUG: Log TCP position
++                self.logger.info(f"TCP Position updated: X={tcp_pose[0]:.3f}, Y={tcp_pose[1]:.3f}, Z={tcp_pose[2]:.3f}")
+                 
+             # Parse actual joint angles (6 doubles, 48 bytes total)  
+             # All joint angles in radians
+@@ -386,6 +391,8 @@
+             if len(data) >= joint_angles_offset + 48:
+                 joint_angles = list(struct.unpack('>6d', data[joint_angles_offset:joint_angles_offset + 48]))
+                 self.robot_state['joint_angles'] = joint_angles
++                # DEBUG: Log joint angles (in degrees)
++                self.logger.info(f"Joint Angles: J1={joint_angles[0]*57.3:.1f}°, J2={joint_angles[1]*57.3:.1f}°")
+                 
+             # Parse TCP speed (6 doubles)
+             tcp_speed_offset = offset + 492  # Typical offset for actual_TCP_speed
+@@ -452,6 +459,8 @@
+             # Notify position callbacks
+             for callback in self.position_callbacks:
+                 try:
++                    # DEBUG: Log callback invocation
++                    self.logger.info(f"Calling position callback with TCP={self.robot_state['tcp_pose'][:3]}")
+                     callback(self.robot_state['tcp_pose'], self.robot_state['joint_angles'])
+                 except Exception as e:
+                     self.logger.error(f"Error in position callback: {e}")

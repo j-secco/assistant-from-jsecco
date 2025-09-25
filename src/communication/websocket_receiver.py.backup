@@ -339,8 +339,20 @@ class WebSocketReceiver:
             # Update timestamp
             self.robot_state['timestamp'] = time.time()
             
-            # UR real-time interface sends continuous robot state data
-            self._parse_robot_state_message(data, 0)
+            # Parse message type (first byte)
+            if len(data) < 1:
+                return
+            
+            message_type = data[offset]
+            offset += 1
+            
+            # Example parsing for different message types
+            # Real implementation would handle the actual UR protocol format
+            
+            if message_type == 16:  # Robot state message (example)
+                self._parse_robot_state_message(data, offset)
+            elif message_type == 20:  # Safety message (example)
+                self._parse_safety_message(data, offset)
             
             # Notify callbacks
             self._notify_callbacks()
@@ -351,23 +363,62 @@ class WebSocketReceiver:
     def _parse_robot_state_message(self, data: bytes, offset: int):
         """
         Parse robot state message from UR binary data format.
+        
+        Args:
+            data: Binary message data from UR robot
+            offset: Current parsing offset
         """
         try:
-            if len(data) < 500:
+            # UR robot sends data in specific binary format
+            # Real-time interface provides robot state at 500Hz
+            
+            if len(data) < offset + 1060:  # Minimum UR state message size
+                self.logger.debug("Insufficient data for UR state message")
                 return
-            
-            # Joint angles at offset 8 (from packet analysis)
-            if len(data) >= 56:
-                joint_angles = list(struct.unpack('>6d', data[8:56]))
-                self.robot_state['joint_angles'] = joint_angles
-            
-            # TCP pose at offset 440 (from packet analysis)
-            if len(data) >= 488:
-                tcp_pose = list(struct.unpack('>6d', data[440:488]))
+                
+            # Parse actual TCP pose (6 doubles, 48 bytes total)
+            # Position: X, Y, Z in meters  
+            # Rotation: RX, RY, RZ in radians
+            tcp_pose_offset = offset + 444  # Typical offset for actual_TCP_pose
+            if len(data) >= tcp_pose_offset + 48:
+                tcp_pose = list(struct.unpack('>6d', data[tcp_pose_offset:tcp_pose_offset + 48]))
                 self.robot_state['tcp_pose'] = tcp_pose
+                
+            # Parse actual joint angles (6 doubles, 48 bytes total)  
+            # All joint angles in radians
+            joint_angles_offset = offset + 252  # Typical offset for actual_q
+            if len(data) >= joint_angles_offset + 48:
+                joint_angles = list(struct.unpack('>6d', data[joint_angles_offset:joint_angles_offset + 48]))
+                self.robot_state['joint_angles'] = joint_angles
+                
+            # Parse TCP speed (6 doubles)
+            tcp_speed_offset = offset + 492  # Typical offset for actual_TCP_speed
+            if len(data) >= tcp_speed_offset + 48:
+                tcp_speed = list(struct.unpack('>6d', data[tcp_speed_offset:tcp_speed_offset + 48]))
+                self.robot_state['tcp_speed'] = tcp_speed
+                
+            # Parse joint speeds (6 doubles)
+            joint_speed_offset = offset + 300  # Typical offset for actual_qd
+            if len(data) >= joint_speed_offset + 48:
+                joint_speeds = list(struct.unpack('>6d', data[joint_speed_offset:joint_speed_offset + 48]))
+                self.robot_state['joint_speeds'] = joint_speeds
+                
+            # Update timestamp
+            self.robot_state['timestamp'] = time.time()
             
+            # Log successful parsing (only occasionally to avoid spam)
+            if hasattr(self, '_last_parse_log'):
+                if time.time() - self._last_parse_log > 5.0:  # Log every 5 seconds
+                    self.logger.debug(f"Successfully parsed robot data - TCP: {tcp_pose[:3]}, Joints: {joint_angles[:3]}")
+                    self._last_parse_log = time.time()
+            else:
+                self._last_parse_log = time.time()
+                
+        except struct.error as e:
+            self.logger.debug(f"Error unpacking UR data: {e}")
         except Exception as e:
-            self.logger.debug(f"Error parsing robot state: {e}")
+            self.logger.debug(f"Error parsing robot state message: {e}")
+
     def _parse_safety_message(self, data: bytes, offset: int):
         """
         Parse safety status message from binary data.

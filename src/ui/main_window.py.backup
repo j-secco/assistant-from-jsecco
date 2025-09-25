@@ -20,7 +20,6 @@ from datetime import datetime
 # Import jog controller and UI widgets
 from control.jog_controller import JogController
 from ui.widgets.config_dialog import ConfigDialog
-from ui.widgets.position_display import PositionDisplay
 
 
 class MainWindow(QMainWindow):
@@ -245,7 +244,7 @@ class MainWindow(QMainWindow):
         left_layout.addStretch()
         
     def _create_center_panel(self, layout: QHBoxLayout):
-        """Create the center panel with position display widget."""
+        """Create the center panel with position display and controls."""
         center_panel = QFrame()
         center_panel.setFrameStyle(QFrame.Shape.Box)
         center_panel.setMinimumWidth(400)
@@ -253,14 +252,73 @@ class MainWindow(QMainWindow):
         
         center_layout = QVBoxLayout(center_panel)
         
-        # Use the PositionDisplay widget
-        self.position_display = PositionDisplay(self.config)
-        center_layout.addWidget(self.position_display)
+        # TCP Position Display
+        tcp_group = QGroupBox("TCP Position")
+        center_layout.addWidget(tcp_group)
+        tcp_layout = QGridLayout(tcp_group)
         
-        # Connect position updates signal to position display widget
-        self.position_updated.connect(self.position_display.update_position)
+        # Position labels and values
+        self.position_labels = {}
+        tcp_coords = ['X:', 'Y:', 'Z:', 'Rx:', 'Ry:', 'Rz:']
         
-        # Add some spacing
+        for i, coord in enumerate(tcp_coords):
+            label = QLabel(coord)
+            label.setStyleSheet("font-weight: bold; font-size: 14px;")
+            value = QLabel("0.00")
+            value.setStyleSheet("font-size: 16px; color: #2196F3;")
+            
+            tcp_layout.addWidget(label, i//2, (i%2)*2)
+            tcp_layout.addWidget(value, i//2, (i%2)*2 + 1)
+            self.position_labels[coord] = value
+        
+        # Joint Angles Display
+        joint_group = QGroupBox("Joint Angles")
+        center_layout.addWidget(joint_group)
+        joint_layout = QGridLayout(joint_group)
+        
+        self.joint_labels = {}
+        joint_names = ['J1:', 'J2:', 'J3:', 'J4:', 'J5:', 'J6:']
+        
+        for i, joint in enumerate(joint_names):
+            label = QLabel(joint)
+            label.setStyleSheet("font-weight: bold; font-size: 14px;")
+            value = QLabel("0.00°")
+            value.setStyleSheet("font-size: 16px; color: #4CAF50;")
+            
+            joint_layout.addWidget(label, i//2, (i%2)*2)
+            joint_layout.addWidget(value, i//2, (i%2)*2 + 1)
+            self.joint_labels[joint] = value
+        
+        # Connection Status
+        connection_group = QGroupBox("Connection Status")
+        center_layout.addWidget(connection_group)
+        connection_layout = QVBoxLayout(connection_group)
+        
+        # Network configuration display
+        self.robot_ip_label = QLabel("Robot IP: Not Set")
+        self.robot_ip_label.setStyleSheet("font-size: 14px; color: #F44336; font-weight: bold;")
+        connection_layout.addWidget(self.robot_ip_label)
+        
+        self.connection_status_label = QLabel("Status: Disconnected")
+        self.connection_status_label.setStyleSheet("font-size: 14px; color: #F44336;")
+        connection_layout.addWidget(self.connection_status_label)
+        
+        # Connect button
+        self.connect_button = QPushButton("Connect to Robot")
+        self.connect_button.setFixedHeight(50)
+        self.connect_button.clicked.connect(self._toggle_connection)
+        self.connect_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        connection_layout.addWidget(self.connect_button)
+        
         center_layout.addStretch()
         
     def _create_right_panel(self, layout: QHBoxLayout):
@@ -689,7 +747,6 @@ class MainWindow(QMainWindow):
                 self.logger.error(f"Error updating status: {e}")
                 
     def _on_position_update(self, tcp_pose, joint_angles):
-        self.logger.info(f"Main window received position update: TCP={tcp_pose[:3]}, Joints={joint_angles[:3]}")
         """Handle position update from controller."""
         position_data = {'tcp_pose': tcp_pose, 'joint_angles': joint_angles}
         self.position_updated.emit(position_data)

@@ -570,6 +570,7 @@ class JogController:
                 self.logger.error(f"Error in status loop: {e}")
                 time.sleep(1.0)
     def _on_position_update(self, tcp_pose: List[float], joint_angles: List[float]):
+        self.logger.info(f"Position update received: TCP={tcp_pose[:3]}, Joints={joint_angles[:3]}")
         """Handle position updates from WebSocket receiver."""
         self.robot_status['tcp_pose'] = tcp_pose
         self.robot_status['joint_angles'] = joint_angles

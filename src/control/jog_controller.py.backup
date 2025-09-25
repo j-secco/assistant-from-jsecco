@@ -532,32 +532,28 @@ class JogController:
                     import time
                     import math
                     
-                    # Generate some demo position data that changes over time
-                    t = time.time() * 0.1  # Slow oscillation
-                    demo_tcp_pose = [
-                        0.3 + 0.05 * math.sin(t),      # X position  
-                        0.2 + 0.03 * math.cos(t),      # Y position
-                        0.4,                           # Z position
-                        3.14 + 0.1 * math.sin(t*0.7), # Rx rotation
-                        0.05 * math.cos(t*0.8),       # Ry rotation  
-                        0.1 * math.sin(t*0.6)         # Rz rotation
-                    ]
-                    
-                    demo_joint_angles = [
-                        0.1 * math.sin(t*0.5),        # J1
-                        -1.57 + 0.2 * math.cos(t*0.6), # J2
-                        1.57 + 0.15 * math.sin(t*0.7), # J3
-                        0.05 * math.cos(t*0.8),       # J4
-                        1.57 + 0.1 * math.sin(t*0.9), # J5
-                        0.03 * math.cos(t)            # J6
-                    ]
-                    
-                    # Update robot status with position data
-                    self.robot_status['tcp_pose'] = demo_tcp_pose
-                    self.robot_status['joint_angles'] = demo_joint_angles
-                    
-                    # Notify position callbacks
-                    self._on_position_update(demo_tcp_pose, demo_joint_angles)
+                    # Get real robot position data
+                    try:
+                        # Query current TCP pose and joint angles from robot
+                        if self.websocket_receiver and self.websocket_receiver.is_connected():
+                            tcp_pose = self.websocket_receiver.get_tcp_pose()
+                            joint_angles = self.websocket_receiver.get_joint_angles()
+                        else:
+                            # Use last known position when not connected
+                            tcp_pose = self.robot_status.get('tcp_pose', [0.0] * 6)
+                            joint_angles = self.robot_status.get('joint_angles', [0.0] * 6)
+                        
+                        # Update robot status with current position data
+                        self.robot_status['tcp_pose'] = tcp_pose
+                        self.robot_status['joint_angles'] = joint_angles
+                        
+                        # Notify position callbacks
+                        self._on_position_update(tcp_pose, joint_angles)
+                        
+                    except Exception as e:
+                        # If real data fails, keep last known position
+                        self.logger.warning(f"Failed to get robot position: {e}")
+                        # Don't update position - keep showing last known values
                 
                 # Update status from dashboard if available
                 if self.dashboard_client and self.dashboard_client.is_connected():
