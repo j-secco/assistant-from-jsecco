@@ -245,7 +245,7 @@ class MainWindow(QMainWindow):
         left_layout.addStretch()
         
     def _create_center_panel(self, layout: QHBoxLayout):
-        """Create the center panel with position display widget."""
+        """Create the center panel with position display and connection controls."""
         center_panel = QFrame()
         center_panel.setFrameStyle(QFrame.Shape.Box)
         center_panel.setMinimumWidth(400)
@@ -253,12 +253,47 @@ class MainWindow(QMainWindow):
         
         center_layout = QVBoxLayout(center_panel)
         
-        # Use the PositionDisplay widget
+        # Use the PositionDisplay widget for real-time position data
         self.position_display = PositionDisplay(self.config)
         center_layout.addWidget(self.position_display)
         
         # Connect position updates signal to position display widget
         self.position_updated.connect(self.position_display.update_position)
+        
+        # Connection Status Section
+        connection_group = QGroupBox("Connection Status")
+        center_layout.addWidget(connection_group)
+        connection_layout = QVBoxLayout(connection_group)
+        
+        # Network configuration display
+        self.robot_ip_label = QLabel("Robot IP: Not Set")
+        self.robot_ip_label.setStyleSheet("font-size: 14px; color: #F44336; font-weight: bold;")
+        connection_layout.addWidget(self.robot_ip_label)
+        
+        self.connection_status_label = QLabel("Status: Disconnected")
+        self.connection_status_label.setStyleSheet("font-size: 14px; color: #F44336;")
+        connection_layout.addWidget(self.connection_status_label)
+        
+        # Connect button
+        self.connect_button = QPushButton("Connect to Robot")
+        self.connect_button.setFixedHeight(50)
+        self.connect_button.clicked.connect(self._toggle_connection)
+        self.connect_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                font-size: 16px;
+                font-weight: bold;
+                color: white;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """)
+        connection_layout.addWidget(self.connect_button)
         
         # Add some spacing
         center_layout.addStretch()
@@ -505,12 +540,15 @@ class MainWindow(QMainWindow):
         status_rate = feedback_config.get('status_update_rate', 5)  # Hz
         
         self.position_timer.start(1000 // position_rate)  # Convert Hz to ms
-        self.status_timer.start(1000 // status_rate)
+        self.status_timer.start(1000 // status_rate)        
+        # Keep-alive timer to ensure app stays responsive when disconnected
+        self.keep_alive_timer = QTimer(self)
+        self.keep_alive_timer.timeout.connect(self._keep_alive_tick)
+        self.keep_alive_timer.start(5000)  # Every 5 seconds
         
     def _connect_signals(self):
         """Connect signals between UI components."""
         # Connect position updates
-        self.position_updated.connect(self._on_position_display_update)
         
         # Connect safety status updates
         self.safety_status_changed.connect(self._on_safety_display_update)
@@ -582,8 +620,12 @@ class MainWindow(QMainWindow):
         """Toggle robot connection."""
         if self.jog_controller:
             if self.jog_controller.is_connected():
-                self.jog_controller.disconnect()
-                self.add_log_message("Disconnecting from robot...", "INFO")
+                try:
+                    self.jog_controller.disconnect()
+                    self.add_log_message("Disconnected from robot", "SUCCESS")
+                except Exception as e:
+                    self.logger.error(f"Error during disconnect: {e}")
+                    self.add_log_message(f"Disconnect error: {e}", "ERROR")
             else:
                 # Check if robot IP is configured
                 robot_ip = self.config.get('robot', {}).get('ip_address', '')
@@ -676,10 +718,15 @@ class MainWindow(QMainWindow):
                     self.position_updated.emit(status)
             except Exception as e:
                 self.logger.error(f"Error updating position: {e}")
+        else:
+            # Keep timer active even when disconnected - this prevents Qt event loop from idling
+            # Update connection status display periodically when disconnected
+            if hasattr(self, 'position_display'):
+                self.position_display.set_connection_status(False)
                 
     def _update_status(self):
         """Update status display from controller.""" 
-        if self.jog_controller:
+        if self.jog_controller and self.jog_controller.is_connected():
             try:
                 # Get current robot status
                 status = self.jog_controller.get_robot_status()
@@ -687,6 +734,10 @@ class MainWindow(QMainWindow):
                     self.safety_status_changed.emit(status)
             except Exception as e:
                 self.logger.error(f"Error updating status: {e}")
+        else:
+            # Keep timer active - update UI to show disconnected state
+            # This ensures Qt event loop remains active
+            pass  # Timer keeps running, maintaining event loop activity
                 
     def _on_position_update(self, tcp_pose, joint_angles):
         self.logger.info(f"Main window received position update: TCP={tcp_pose[:3]}, Joints={joint_angles[:3]}")
@@ -703,35 +754,6 @@ class MainWindow(QMainWindow):
         status_msg = "Connected" if connected else "Disconnected"
         self.connection_status_changed.emit(connected, status_msg)
         
-    def _on_position_display_update(self, status_data):
-        """Update position display with new data."""
-        try:
-            # Update TCP position
-            tcp_pose = status_data.get('tcp_pose', [0.0] * 6)
-            tcp_coords = ['X:', 'Y:', 'Z:', 'Rx:', 'Ry:', 'Rz:']
-            
-            for i, coord in enumerate(tcp_coords):
-                if i < len(tcp_pose):
-                    if coord in ['X:', 'Y:', 'Z:']:
-                        # Linear coordinates in mm
-                        value = tcp_pose[i] * 1000  # Convert to mm
-                        self.position_labels[coord].setText(f"{value:.1f}")
-                    else:
-                        # Angular coordinates in degrees
-                        value = tcp_pose[i] * 180 / 3.14159  # Convert to degrees
-                        self.position_labels[coord].setText(f"{value:.1f}°")
-            
-            # Update joint angles
-            joint_angles = status_data.get('joint_angles', [0.0] * 6)
-            joint_names = ['J1:', 'J2:', 'J3:', 'J4:', 'J5:', 'J6:']
-            
-            for i, joint in enumerate(joint_names):
-                if i < len(joint_angles):
-                    angle = joint_angles[i] * 180 / 3.14159  # Convert to degrees
-                    self.joint_labels[joint].setText(f"{angle:.1f}°")
-                    
-        except Exception as e:
-            self.logger.error(f"Error updating position display: {e}")
         
     def _on_safety_display_update(self, status_data):
         """Update safety status display with new data."""
@@ -763,56 +785,70 @@ class MainWindow(QMainWindow):
         
     def _update_connection_display(self, connected: bool, message: str):
         """Update connection status display."""
-        self.connection_status_label.setText(f"Status: {message}")
-        
+        # Update status label with appropriate styling
         if connected:
-            self.connection_label.setText("Connected")
-            self.connection_label.setStyleSheet("""
-                QLabel {
-                    border: 2px solid #4CAF50;
-                    border-radius: 8px;
-                    background-color: #E8F5E8;
-                    color: #4CAF50;
-                    font-weight: bold;
-                    font-size: 16px;
-                }
-            """)
+            self.connection_status_label.setText(f"Status: Connected")
+            self.connection_status_label.setStyleSheet("font-size: 14px; color: #4CAF50; font-weight: bold;")
+            
+            # Update connect button to show disconnect
             self.connect_button.setText("Disconnect")
             self.connect_button.setStyleSheet("""
                 QPushButton {
                     background-color: #F44336;
                     font-size: 16px;
                     font-weight: bold;
+                    color: white;
+                    border-radius: 8px;
                 }
                 QPushButton:hover {
                     background-color: #E53935;
                 }
-            """)
-            self.connection_status_label.setStyleSheet("font-size: 14px; color: #4CAF50;")
-        else:
-            self.connection_label.setText("Disconnected")
-            self.connection_label.setStyleSheet("""
-                QLabel {
-                    border: 2px solid #F44336;
-                    border-radius: 8px;
-                    background-color: #FFEBEE;
-                    color: #F44336;
-                    font-weight: bold;
-                    font-size: 16px;
+                QPushButton:pressed {
+                    background-color: #D32F2F;
                 }
             """)
+            
+            # Update robot IP label to show it's connected
+            if hasattr(self, 'robot_ip_label'):
+                robot_ip = self.config.get('robot', {}).get('ip_address', 'Unknown')
+                self.robot_ip_label.setText(f"Robot IP: {robot_ip}")
+                self.robot_ip_label.setStyleSheet("font-size: 14px; color: #4CAF50; font-weight: bold;")
+                
+            # Update position display connection status
+            if hasattr(self, 'position_display'):
+                self.position_display.set_connection_status(True)
+                
+        else:
+            self.connection_status_label.setText(f"Status: {message}")
+            self.connection_status_label.setStyleSheet("font-size: 14px; color: #F44336;")
+            
+            # Update connect button to show connect
             self.connect_button.setText("Connect to Robot")
             self.connect_button.setStyleSheet("""
                 QPushButton {
                     background-color: #4CAF50;
                     font-size: 16px;
                     font-weight: bold;
+                    color: white;
+                    border-radius: 8px;
                 }
                 QPushButton:hover {
                     background-color: #45a049;
                 }
+                QPushButton:pressed {
+                    background-color: #3d8b40;
+                }
             """)
-            self.connection_status_label.setStyleSheet("font-size: 14px; color: #F44336;")
+            
+            # Update robot IP label 
+            if hasattr(self, 'robot_ip_label'):
+                robot_ip = self.config.get('robot', {}).get('ip_address', 'Not Set')
+                self.robot_ip_label.setText(f"Robot IP: {robot_ip}")
+                self.robot_ip_label.setStyleSheet("font-size: 14px; color: #F44336; font-weight: bold;")
+                
+            # Update position display connection status
+            if hasattr(self, 'position_display'):
+                self.position_display.set_connection_status(False)
             
     def add_log_message(self, message: str, level: str = "INFO"):
         """
@@ -839,17 +875,38 @@ class MainWindow(QMainWindow):
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
         
+    def _keep_alive_tick(self):
+        """Keep-alive tick to ensure application stays responsive."""
+        # This method runs every few seconds to ensure the Qt event loop stays active
+        # It's especially important when disconnected from robot
+        current_time = datetime.now().strftime("%H:%M:%S")
+        self.logger.debug(f"Keep-alive tick at {current_time}")
+        
+        # Update window title to show current status
+        if self.jog_controller and self.jog_controller.is_connected():
+            self.setWindowTitle("UR10 Jog Control - Connected")
+        else:
+            self.setWindowTitle("UR10 Jog Control - Disconnected")
+    
     def closeEvent(self, event):
         """Handle window close event."""
         self.logger.info("Main window closing")
         
-        # Stop timers
-        self.position_timer.stop()
-        self.status_timer.stop()
+        # Stop timers safely
+        try:
+            self.position_timer.stop()
+            self.status_timer.stop()
+            if hasattr(self, 'keep_alive_timer'):
+                self.keep_alive_timer.stop()
+        except Exception as e:
+            self.logger.error(f"Error stopping timers: {e}")
         
-        # Disconnect jog controller
+        # Disconnect jog controller safely
         if self.jog_controller:
-            self.jog_controller.disconnect()
+            try:
+                self.jog_controller.disconnect()
+            except Exception as e:
+                self.logger.error(f"Error disconnecting jog controller: {e}")
             
         event.accept()
         

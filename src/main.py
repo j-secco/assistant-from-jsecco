@@ -20,6 +20,118 @@ script_dir = Path(__file__).parent.parent
 src_dir = Path(__file__).parent
 sys.path.insert(0, str(src_dir))
 
+
+# Automatic command-line output logging
+import sys
+import os
+from datetime import datetime
+from pathlib import Path
+
+class CommandLineLogger:
+    """Automatically capture all stdout/stderr to log files"""
+    
+    def __init__(self):
+        # Create logs directory
+        self.log_dir = Path('logs')
+        self.log_dir.mkdir(exist_ok=True)
+        
+        # Create timestamped session log
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.session_log = self.log_dir / f'commandline_session_{timestamp}.log'
+        self.error_log = self.log_dir / f'commandline_errors_{timestamp}.log'
+        
+        # Keep references to original streams
+        self.original_stdout = sys.stdout
+        self.original_stderr = sys.stderr
+        
+        # Open log files
+        self.session_file = open(self.session_log, 'w', encoding='utf-8', buffering=1)
+        self.error_file = open(self.error_log, 'w', encoding='utf-8', buffering=1)
+        
+        # Write session header
+        self.session_file.write(f"==================== COMMAND LINE SESSION START: {datetime.now()} ====================\n")
+        self.session_file.write(f"Python: {sys.version}\n")
+        self.session_file.write(f"Working Directory: {os.getcwd()}\n")
+        self.session_file.write(f"Command: {' '.join(sys.argv)}\n")
+        self.session_file.write("============================================================================\n")
+        self.session_file.flush()
+        
+        # Create tee streams that write to both original and log file
+        sys.stdout = self.TeeStream(self.original_stdout, self.session_file)
+        sys.stderr = self.TeeStream(self.original_stderr, [self.session_file, self.error_file])
+        
+        print(f"📝 Command-line logging active:")
+        print(f"   Session log: {self.session_log}")
+        print(f"   Error log: {self.error_log}")
+    
+    class TeeStream:
+        """Stream that writes to multiple destinations"""
+        def __init__(self, original_stream, log_files):
+            self.original_stream = original_stream
+            self.log_files = log_files if isinstance(log_files, list) else [log_files]
+        
+        def write(self, data):
+            # Write to original stream (console)
+            self.original_stream.write(data)
+            
+            # Write to log file(s)
+            for log_file in self.log_files:
+                try:
+                    log_file.write(data)
+                    log_file.flush()  # Ensure immediate write
+                except:
+                    pass  # Don't crash if log write fails
+            return len(data)
+        
+        def flush(self):
+            self.original_stream.flush()
+            for log_file in self.log_files:
+                try:
+                    log_file.flush()
+                except:
+                    pass
+        
+        def isatty(self):
+            return self.original_stream.isatty()
+    
+    def close(self):
+        """Restore original streams and close log files"""
+        try:
+            # Write session footer
+            self.session_file.write(f"\n==================== COMMAND LINE SESSION END: {datetime.now()} ====================\n")
+            
+            # Restore original streams
+            sys.stdout = self.original_stdout
+            sys.stderr = self.original_stderr
+            
+            # Close log files
+            self.session_file.close()
+            self.error_file.close()
+            
+            print(f"📝 Command-line logs saved:")
+            print(f"   Session: {self.session_log}")
+            print(f"   Errors: {self.error_log}")
+            
+        except Exception as e:
+            print(f"Error closing command-line logger: {e}")
+
+# Initialize automatic command-line logging
+try:
+    _cmdline_logger = CommandLineLogger()
+    
+    # Set up cleanup on exit
+    import atexit
+    atexit.register(_cmdline_logger.close)
+    
+    # Signal handlers will be set up later after Qt initialization
+    # (Signal handlers moved to setup_signal_handlers function)
+    
+except Exception as e:
+    print(f"Warning: Could not initialize command-line logging: {e}")
+
+# Continue with normal imports...
+
+
 # PyQt6 imports
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QTimer
@@ -210,7 +322,19 @@ def setup_signal_handlers():
     """Set up signal handlers for graceful shutdown."""
     def signal_handler(signum, frame):
         logging.info(f"Received signal {signum}, initiating shutdown...")
-        QApplication.quit()
+        # Clean up command line logging
+        try:
+            import __main__
+            if hasattr(__main__, '_cmdline_logger'):
+                __main__._cmdline_logger.close()
+        except:
+            pass
+        # Quit Qt application
+        app = QApplication.instance()
+        if app:
+            app.quit()
+        else:
+            sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -259,7 +383,6 @@ def main():
     parser = argparse.ArgumentParser(description="UR10 WebSocket Jog Control Interface")
     parser.add_argument("--config", "-c", type=str, help="Configuration file path")
     parser.add_argument("--debug", "-d", action="store_true", help="Enable debug mode")
-    parser.add_argument("--simulate", "-s", action="store_true", help="Simulation mode (no robot required)")
     parser.add_argument("--fullscreen", "-f", action="store_true", help="Start in fullscreen mode")
     args = parser.parse_args()
     
@@ -271,9 +394,7 @@ def main():
         config['logging']['level'] = 'DEBUG'
         config['debug'] = {'enabled': True}
     
-    if args.simulate:
-        config.setdefault('debug', {})['simulate_robot'] = True
-        
+
     if args.fullscreen:
         config['ui']['window']['fullscreen'] = True
     
@@ -327,8 +448,8 @@ def main():
         main_window.add_log_message("UR10 Jog Control Interface Started", "SUCCESS")
         main_window.add_log_message(f"Robot IP: {robot_ip}", "INFO")
         
-        if config.get('debug', {}).get('simulate_robot', False):
-            main_window.add_log_message("Running in SIMULATION mode - no robot required", "WARNING")
+        # Always show real robot mode
+        main_window.add_log_message("Running in REAL ROBOT mode - connecting to 192.168.10.24", "SUCCESS")
         
         # Start the application event loop
         logger.info("Starting application event loop...")

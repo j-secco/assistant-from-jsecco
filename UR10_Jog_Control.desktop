@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=UR10 Jog Control
+Comment=UR10 Robot Jog Control Interface (Real Robot Mode)
+Exec=/home/ur10/Documents/assistant-from-jsecco/run_from_desktop.sh
+Icon=applications-engineering
+Terminal=true
+StartupNotify=true
+Categories=Development;Engineering;
+Keywords=robot;ur10;jog;control;
+Path=/home/ur10/Documents/assistant-from-jsecco
+StartupWMClass=UR10 Jog Control
